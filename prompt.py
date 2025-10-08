@@ -25,7 +25,7 @@ def get_agent_descriptions() -> Dict[str, Dict[str, Any]]:
             "name": "Web Researcher",
             "capability": "Fetch public data via Tavily web search",
             "use_when": "Public information, news, current events, or external facts are needed",
-            "limitations": "Cannot access private/internal company data",
+            "limitations": "Cannot access private/internal company data, Don't split many recursive queries",
             "output_format": "Raw research data and findings from public sources",
         },
         "cortex_researcher": {
