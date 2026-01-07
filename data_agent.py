@@ -1,4 +1,3 @@
-
 from typing import Optional, List, Dict, Any, Literal
 from prompt import plan_prompt, executor_prompt, MAX_REPLANS, agent_system_prompt
 from langchain_openai import ChatOpenAI
@@ -11,11 +10,20 @@ from tools import python_repl_tool, web_search_tool
 from langchain.tools import StructuredTool
 import json
 from pydantic import BaseModel, Field
+import logging
 
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
 _ = load_dotenv(override=True)
+
+# Configure logging at the top of the file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 class MessageContext(MessagesState):
     user_query: Optional[str]
@@ -36,8 +44,9 @@ def planner_node(state: MessageContext):
     """
     Runs the planning LLM and stores the resulting plan in state.
     """
-
+    logger.info("[PLANNER] Starting planner_node with state: %s", state)
     llm_reply = llm.invoke([plan_prompt(state)])
+    logger.info("[PLANNER] LLM reply: %s", llm_reply.content)
     print("Planner response:")
     print("--------------------------------")
     print(llm_reply.content)
@@ -47,13 +56,13 @@ def planner_node(state: MessageContext):
             llm_reply.content, str) else str(llm_reply.content)
         parsed_plan = json.loads(content_str)
     except json.JSONDecodeError:
+        logger.error("[PLANNER] Invalid JSON from planner: %s", llm_reply.content)
         raise ValueError(
             f"Planner returned invalid JSON:\n{llm_reply.content}"
             )
-    
     replan = state.get("replan_flag", False)
     updated_plan: Dict[str, Any] = parsed_plan
-
+    logger.info("[PLANNER] Updated plan: %s", updated_plan)
     return Command(
         update={
             "plan": updated_plan,
@@ -72,12 +81,13 @@ def planner_node(state: MessageContext):
 def executor_node(
     state: MessageContext,
 ) -> Command[Literal['planner', 'web_researcher', 'chart_generator', 'chart_summarizer', 'synthesizer']]:
-
+    logger.info("[EXECUTOR] Starting executor_node with state: %s", state)
     plan: Dict[str, Any] = state.get("plan", {})
     step: int = state.get("current_step", 1)
-
+    logger.info("[EXECUTOR] Plan: %s, Step: %d", plan, step)
     if state.get("replan_flag"):
         planned_agent = plan.get(str(step), {}).get("agent")
+        logger.info("[EXECUTOR] Replan flag set. Planned agent: %s", planned_agent)
         return Command(
             update={
                 "replan_flag": False,
@@ -85,9 +95,10 @@ def executor_node(
             },
             goto=planned_agent,
         )
-
     # 1) Build prompt & call LLM
+    logger.info("[EXECUTOR] Building executor prompt and invoking LLM.")
     llm_reply = llm.invoke([executor_prompt(state)])
+    logger.info("[EXECUTOR] LLM reply: %s", llm_reply.content)
     print("Executor response:")
     print("--------------------------------")
     print(llm_reply.content)
@@ -100,21 +111,17 @@ def executor_node(
         reason: str = parsed["reason"]
         query: str  = parsed["query"]
     except Exception as exc:
+        logger.error("[EXECUTOR] Invalid executor JSON: %s", llm_reply.content)
         raise ValueError(f"Invalid executor JSON:\n{llm_reply.content}") from exc
-
-    # Upodate the state
     updates: Dict[str, Any] = {
         "messages": [HumanMessage(content=llm_reply.content, name="executor")],
         "last_reason": reason,
         "agent_query": query,
     }
-
-    # Replan accounting
     replans: Dict[int, int] = state.get("replan_attempts", {}) or {}
-    print(f"Replans so far: {replans}")
+    logger.info("[EXECUTOR] Replans so far: %s", replans)
     step_replans = replans.get(step, 0)
-    print(f"Replans for step {step}: {step_replans}")
-    # 2) Replan decision
+    logger.info("[EXECUTOR] Replans for step %d: %d", step, step_replans)
     if replan:
         if step_replans < MAX_REPLANS:
             replans[step] = step_replans + 1
@@ -123,16 +130,17 @@ def executor_node(
                 "replan_flag": True,     # ensure next turn executes the planned agent once
                 "current_step": step,    # stay on same step for the new plan
             })
+            logger.info("[EXECUTOR] Replanning. Updated replans: %s", replans)
             return Command(update=updates, goto="planner")
         else:
             next_agent = plan.get(str(step + 1), {}).get("agent", "synthesizer")
             updates["current_step"] = step + 1
+            logger.info("[EXECUTOR] Max replans reached. Moving to next agent: %s", next_agent)
             return Command(update=updates, goto=next_agent)
-
-    # 3) Happy path: run chosen agent; advance only if following the plan
     planned_agent = plan.get(str(step), {}).get("agent")
     updates["current_step"] = step + 1 if goto == planned_agent else step
     updates["replan_flag"] = False
+    logger.info("[EXECUTOR] Happy path. Goto: %s, Updates: %s", goto, updates)
     return Command(update=updates, goto=goto)
 
 class WebSearchInput(BaseModel):
@@ -169,13 +177,14 @@ def web_research_node(
     state: MessageContext,
 ) -> Command[Literal["executor"]]:
     agent_query = state.get("agent_query")
-    print(f"Web researcher query: {agent_query}")
+    logger.info("[WEB_RESEARCH] Web researcher query: %s", agent_query)
     result = web_search_agent.invoke({"messages":agent_query})
+    logger.info("[WEB_RESEARCH] Agent result: %s", result)
     goto = "executor"
-
     result["messages"][-1] = HumanMessage(
         content=result["messages"][-1].content, name="web_researcher"
     )
+    logger.info("[WEB_RESEARCH] Updated messages: %s", result["messages"])
     return Command(
         update={
             # share internal message history of research agent with other agents
@@ -191,9 +200,10 @@ chart_agent = create_react_agent(
         """
         You can only generate charts. You are working with a researcher 
         colleague.
-        1) Print the chart first.
-        2) Save the chart to a file in the current working directory.
-        3) At the very end of your message, output EXACTLY two lines 
+        1) Use matplotlib to generate charts add this import matplotlib matplotlib.use('TkAgg').
+        2) Dont, Print the chart, Ignore plt.show() .
+        3) Save the chart to a file in the current working directory plt.savefig('filename.png').
+        4) At the very end of your message, output EXACTLY two lines
         so the summarizer can find them:
            CHART_PATH: <relative_path_to_chart_file>
            CHART_NOTES: <one concise sentence summarizing the main insight in the chart>
@@ -203,14 +213,15 @@ chart_agent = create_react_agent(
 )
 
 def chart_node(state: MessageContext) -> Command[Literal["chart_summarizer"]]:
+    logger.info("[CHART] Starting chart_node with state: %s", state)
     result = chart_agent.invoke(state)
+    logger.info("[CHART] Chart generator answer: %s", result['messages'][-1].content)
     print(f"Chart generator answer: {result['messages'][-1].content}")
-    # wrap in a human message, as not all providers allow
-    # AI message at the last position of the input messages list
     result["messages"][-1] = HumanMessage(
         content=result["messages"][-1].content, name="chart_generator"
     )
     goto="chart_summarizer"
+    logger.info("[CHART] Updated messages: %s", result["messages"])
     return Command(
         update={
             # share internal message history of chart agent with other agents
@@ -232,10 +243,12 @@ chart_summary_agent = create_react_agent(
 def chart_summary_node(
     state: MessageContext,
 ) -> Command[Literal[END]]:
+    logger.info("[CHART_SUMMARY] Starting chart_summary_node with state: %s", state)
     result = chart_summary_agent.invoke(state)
+    logger.info("[CHART_SUMMARY] Chart summarizer answer: %s", result['messages'][-1].content)
     print(f"Chart summarizer answer: {result['messages'][-1].content}")
-    # Send to the end node
     goto = END
+    logger.info("[CHART_SUMMARY] Updated messages: %s", result["messages"])
     return Command(
         update={
             # share internal message history of chart agent with other agents
@@ -261,9 +274,7 @@ def synthesizer_node(state: MessageContext) -> Command[Literal[END]]:
                                         "chart_generator", 
                                         "chart_summarizer")
     ]
-
     user_question = state.get("user_query", state.get("messages", [{}])[0].content if state.get("messages") else "")
-
     synthesis_instructions = (
         """
         You are the Synthesizer. Use the context below to directly 
@@ -280,7 +291,6 @@ def synthesizer_node(state: MessageContext) -> Command[Literal[END]]:
         - Keep the output crisp; avoid meta commentary or tool instructions.
         """
         )
-
     summary_prompt = [
         HumanMessage(content=(
             f"User question: {user_question}\n\n"
@@ -288,12 +298,11 @@ def synthesizer_node(state: MessageContext) -> Command[Literal[END]]:
             f"Context:\n\n" + "\n\n---\n\n".join(relevant_msgs)
         ))
     ]
-
+    logger.info("[SYNTHESIZER] Synthesis prompt: %s", summary_prompt)
     llm_reply = llm_researcher.invoke(summary_prompt)
-
     answer = llm_reply.content.strip()
+    logger.info("[SYNTHESIZER] Synthesizer answer: %s", answer)
     print(f"Synthesizer answer: {answer}")
-
     return Command(
         update={
             "final_answer": answer,
@@ -322,3 +331,4 @@ state = {
                                "chart_summarizer", "synthesizer"],
         }
 graph.invoke(state)
+H = "Aakash"
