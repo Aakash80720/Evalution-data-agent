@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any, Literal
-from prompt import plan_prompt, executor_prompt, MAX_REPLANS, agent_system_prompt
+from legacy.prompt import plan_prompt, executor_prompt, MAX_REPLANS, agent_system_prompt
 from langchain_openai import ChatOpenAI
 from langgraph.types import Command
 from langchain.schema import HumanMessage, SystemMessage

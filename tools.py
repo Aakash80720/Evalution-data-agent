@@ -2,6 +2,13 @@ from langchain_experimental.utilities import PythonREPL
 from langchain_core.tools import tool, StructuredTool
 from typing import Annotated
 from langchain_tavily import TavilySearch
+import os
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for thread safety
+
+# Ensure outputs directory exists
+os.makedirs("outputs", exist_ok=True)
+
 repl = PythonREPL()
 
 @tool
@@ -9,10 +16,13 @@ def python_repl_tool(
     code: Annotated[str, "The python code to execute to generate your chart."],
 ):
     """Use this to execute python code. You will be used to execute python code
-    that generates charts. Only print the chart once.
+    that generates charts. Charts should be saved to the 'outputs' directory.
     This is visible to the user."""
     try:
-        result = repl.run(code)
+        os.makedirs("outputs", exist_ok=True)
+        # Inject matplotlib backend setting for thread safety
+        setup_code = "import matplotlib\nmatplotlib.use('Agg')\n"
+        result = repl.run(setup_code + code)
     except BaseException as e:
         return f"Failed to execute. Error: {repr(e)}"
     result_str = (

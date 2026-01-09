@@ -11,3 +11,18 @@ wheels/
 
 # Environment variables file
 .env
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Output files (optional - uncomment to track analysis results)
+outputs/
+outputs/*.png
+outputs/*.md
