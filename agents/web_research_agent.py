@@ -56,14 +56,24 @@ class WebResearchAgent(BaseAgent):
             self.logger.error("[WEB_RESEARCHER] Error: %s", str(e))
             raise
         
+        # Get the research result
+        research_result = result["messages"][-1].content
+        
         # Convert last message to HumanMessage
         result["messages"][-1] = HumanMessage(
-            content=result["messages"][-1].content, 
+            content=research_result, 
             name="web_researcher"
         )
         
+        # Store in agent_outputs for reliable synthesis
+        agent_outputs = state.get("agent_outputs", {}) or {}
+        agent_outputs["web_researcher"] = research_result
+        
         command = Command(
-            update={"messages": result["messages"]},
+            update={
+                "messages": result["messages"],
+                "agent_outputs": agent_outputs,
+            },
             goto="executor",
         )
         

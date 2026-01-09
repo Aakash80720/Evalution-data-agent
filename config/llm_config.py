@@ -34,8 +34,8 @@ class LLMConfig:
     
     # Synthesizer LLM - for final answer synthesis
     SYNTHESIZER_CONFIG = {
-        "model": "gpt-4o",
-        "temperature": 0.6,
+        "model": "gpt-5",
+        "temperature": 0.9,
     }
     
     # Supervisor LLM - for plan validation and monitoring

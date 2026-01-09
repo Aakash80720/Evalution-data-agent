@@ -15,7 +15,7 @@ def main():
     output_mgr = OutputManager(output_dir="outputs")
     graph = build_graph()
     
-    query = "Chart the current market capitalization of the top 5 banks in the US and Report that?"
+    query = "what is current Growth of AI in 2025 to 2030?, provide statistical data and trends. prepared with chart"
     
     print(f"\nExecuting query: {query}\n")
     

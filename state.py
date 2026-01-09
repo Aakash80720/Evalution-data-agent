@@ -16,3 +16,5 @@ class MessageContext(MessagesState):
     supervisor_approved: Optional[bool]
     supervisor_feedback: Optional[Dict[str, Any]]
     final_answer: Optional[str]
+    # Store agent outputs directly for reliable synthesis
+    agent_outputs: Optional[Dict[str, str]]  # {"web_researcher": "...", "chart_generator": "..."}

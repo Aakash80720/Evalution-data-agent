@@ -60,14 +60,24 @@ class ChartGeneratorAgent(BaseAgent):
             self.logger.error("[CHART_GENERATOR] Error: %s", str(e))
             raise
         
+        # Get the chart result
+        chart_result = result["messages"][-1].content
+        
         # Convert last message to HumanMessage
         result["messages"][-1] = HumanMessage(
-            content=result["messages"][-1].content,
+            content=chart_result,
             name="chart_generator"
         )
         
+        # Store in agent_outputs for reliable synthesis
+        agent_outputs = state.get("agent_outputs", {}) or {}
+        agent_outputs["chart_generator"] = chart_result
+        
         command = Command(
-            update={"messages": result["messages"]},
+            update={
+                "messages": result["messages"],
+                "agent_outputs": agent_outputs,
+            },
             goto="executor",
         )
         

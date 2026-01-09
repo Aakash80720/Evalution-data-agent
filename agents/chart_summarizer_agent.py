@@ -67,14 +67,24 @@ class ChartSummarizerAgent(BaseAgent):
             self.logger.error("[CHART_SUMMARIZER] Error: %s", str(e))
             raise
         
+        # Get the summary result
+        summary_result = result["messages"][-1].content
+        
         # Add the summary to the state messages
         state["messages"].append(HumanMessage(
-            content=result["messages"][-1].content,
+            content=summary_result,
             name="chart_summarizer"
         ))
         
+        # Store in agent_outputs for reliable synthesis
+        agent_outputs = state.get("agent_outputs", {}) or {}
+        agent_outputs["chart_summarizer"] = summary_result
+        
         command = Command(
-            update={"messages": state["messages"]},
+            update={
+                "messages": state["messages"],
+                "agent_outputs": agent_outputs,
+            },
             goto="executor",
         )
         
